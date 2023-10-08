@@ -328,16 +328,7 @@ def tab5(patient_details_file, report_details_file):
                     st.write("A small p-value (typically less than 0.05) suggests that the difference is statistically significant,")
                     st.write("meaning that the interpolation results are significantly different from the actual recorded values.")
 
-                    # Plot original data, linear interpolation, and spline interpolation
-                    plt.figure(figsize=(10, 6))
-                    plt.plot(timestamps, values, marker='o', label='Original Data')
-                    plt.plot(interpolated_timestamps, interpolated_values, label='Linear Interpolation')
-                    plt.title(f"{selected_code} Interpolated Point-to-Point Analysis for {selected_patient}")
-                    plt.xlabel("Date")
-                    plt.ylabel("Result")
-                    plt.xticks(rotation=45)
-                    plt.legend()
-                    st.pyplot(plt)
+
 
         
 def tab6(patient_details_file, report_details_file):
