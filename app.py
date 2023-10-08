@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime, timedelta
 from scipy import stats, interpolate
-from scipy.interpolate import interp1d, make_interp_spline
+from scipy.interpolate import interp1d, CubicSpline
 from scipy.stats import ttest_ind
 import seaborn as sns
 from streamlit_option_menu import option_menu
@@ -213,12 +213,37 @@ def tab5(patient_details_file, report_details_file):
             patient_details_df = pd.read_excel(patient_details_file)
             report_details_df = pd.read_excel(report_details_file)
             
-            selected_patient = st.selectbox("Select a patient:", patient_details_df["LastName"].unique())
+            # Let the user choose between individual and grouped info
+            info_option = st.radio("Select Info Display Option:", ["Individual Patient Info", "Grouped Patient Info"])
             
-            selected_patient_info = report_details_df[report_details_df["Name"] == selected_patient]
+            if info_option == "Individual Patient Info":
+                selected_patient = st.selectbox("Select a patient:", patient_details_df["LastName"].unique(), key="patient")
+                selected_patient_info = report_details_df[report_details_df["Name"] == selected_patient]
+                
+                st.subheader("Selected Patient Info:")
+                st.dataframe(selected_patient_info)
+                
+
             
-            st.subheader("Selected Patient Info:")
-            st.dataframe(selected_patient_info)
+            elif info_option == "Grouped Patient Info":
+                selected_timing = st.radio("Select Disease Dissection Timing:", ["chronic", "acute"])
+                
+                selected_patients = patient_details_df[patient_details_df["DiseaseDissectionTiming"] == selected_timing]
+                
+                if not selected_patients.empty:
+                    st.subheader("Selected Patients:")
+                    st.dataframe(selected_patients)
+                    
+                    for selected_patient in selected_patients["LastName"].unique():
+                        selected_patient_info = report_details_df[report_details_df["Name"] == selected_patient]
+                        
+                        st.subheader(f"Selected Patient Info for {selected_patient}:")
+                        st.dataframe(selected_patient_info)
+                
+                else:
+                    st.write("No patients found for the selected timing.")
+            
+
             
             selected_code = st.selectbox("Select a CODE:", selected_patient_info["CODE"].unique())
             
@@ -236,27 +261,31 @@ def tab5(patient_details_file, report_details_file):
             if not filtered_data.empty:
                 if abs(selected_interval) > 0:
                     sorted_data = filtered_data.sort_values(by='Auftragsdatum')
-                    
+
                     timestamps = pd.to_datetime(sorted_data['Auftragsdatum'], format='%d.%m.%Y %H:%M:%S', errors='coerce').round('s')
                     values = sorted_data['Befundtext'].astype(float)
-                    
-                    timestamps_numeric = (timestamps - timestamps.min()).dt.total_seconds()
 
-                    f = interpolate.interp1d(timestamps_numeric, values, kind='linear', fill_value='extrapolate')
-                    interpolated_timestamps_numeric = np.arange(timestamps_numeric.min(), timestamps_numeric.max() + 1, 1)
+                    if len(timestamps) < 2:
+                        st.warning("Insufficient data for interpolation. Please select a different time interval or patient.")
+                    else:
+                        timestamps_numeric = (timestamps - timestamps.min()).dt.total_seconds()
 
-                    interpolated_values = f(interpolated_timestamps_numeric)
-                    interpolated_timestamps = timestamps.min() + pd.to_timedelta(interpolated_timestamps_numeric, unit='s')
-                    
-                    plt.figure(figsize=(10, 6))
-                    plt.plot(timestamps, values, marker='o', label='Original Data')
-                    plt.plot(interpolated_timestamps, interpolated_values, label='Interpolated Data')
-                    plt.title(f"{selected_code} Interpolated Point-to-Point Analysis for {selected_patient}")
-                    plt.xlabel("Date")
-                    plt.ylabel("Result")
-                    plt.xticks(rotation=45)
-                    plt.legend()
-                    st.pyplot(plt)
+                        cubic_spline = CubicSpline(timestamps_numeric, values)
+
+                        interpolated_timestamps_numeric = np.arange(timestamps_numeric.min(), timestamps_numeric.max() + 1, 1)
+                        interpolated_values_spline = cubic_spline(interpolated_timestamps_numeric)
+
+                        interpolated_timestamps = timestamps.min() + pd.to_timedelta(interpolated_timestamps_numeric, unit='s')
+
+                        plt.figure(figsize=(10, 6))
+                        plt.plot(timestamps, values, marker='o', label='Original Data')
+                        plt.plot(interpolated_timestamps, interpolated_values_spline, label='Cubic Spline Interpolation')
+                        plt.title(f"{selected_code} Cubic Spline Interpolated Point-to-Point Analysis for {selected_patient}")
+                        plt.xlabel("Date")
+                        plt.ylabel("Result")
+                        plt.xticks(rotation=45)
+                        plt.legend()
+                        st.pyplot(plt)
 
             if not filtered_data.empty:
                 if abs(selected_interval) > 0:
@@ -293,35 +322,25 @@ def tab5(patient_details_file, report_details_file):
                     values = sorted_data['Befundtext'].astype(float)
 
                     timestamps_numeric = (timestamps - timestamps.min()).dt.total_seconds()
-
-                    # Perform linear interpolation
                     f = interp1d(timestamps_numeric, values, kind='linear', fill_value='extrapolate')
                     interpolated_timestamps_numeric = np.arange(timestamps_numeric.min(), timestamps_numeric.max() + 1, 1)
                     interpolated_values = f(interpolated_timestamps_numeric)
-
-                    # Perform t-test to assess statistical significance
                     t_statistic, p_value = ttest_ind(values, interpolated_values)
 
-                    # Display the results of the t-test and explanations
                     st.subheader("Statistical Significance Analysis:")
 
-                    # Display the original data mean and standard deviation
                     original_mean = np.mean(values)
                     original_std = np.std(values)
                     st.write(f"Original Data Mean: {original_mean:.2f}")
                     st.write(f"Original Data Standard Deviation: {original_std:.2f}")
 
-                    # Display the interpolated data mean and standard deviation
                     interpolated_mean = np.mean(interpolated_values)
                     interpolated_std = np.std(interpolated_values)
+                    
                     st.write(f"Interpolated Data Mean: {interpolated_mean:.2f}")
                     st.write(f"Interpolated Data Standard Deviation: {interpolated_std:.2f}")
-
-                    # Display the t-statistic and p-value
                     st.write(f"t-statistic: {t_statistic:.2f}")
                     st.write(f"p-value: {p_value:.4f}")
-
-                    # Explain the results
                     st.write("The t-statistic measures the difference between the means of the original data and interpolated data.")
                     st.write("A higher t-statistic indicates a larger difference between the means.")
                     st.write("The p-value represents the probability of observing such a difference by chance alone.")
@@ -329,8 +348,6 @@ def tab5(patient_details_file, report_details_file):
                     st.write("meaning that the interpolation results are significantly different from the actual recorded values.")
 
 
-
-        
 def tab6(patient_details_file, report_details_file):
     st.title("Generate Patient Results File")
 
