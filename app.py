@@ -8,6 +8,7 @@ import seaborn as sns
 from streamlit_option_menu import option_menu
 from markup import app_intro, how_use_intro
 
+
 PASSWORD = 'Ethan101'
 
 def authenticate(password):
@@ -255,6 +256,37 @@ def tab5(patient_details_file, report_details_file):
                     plt.legend()
                     st.pyplot(plt)
 
+            if not filtered_data.empty:
+                if abs(selected_interval) > 0:
+                    sorted_data = filtered_data.sort_values(by='Auftragsdatum')
+                    
+                    timestamps = pd.to_datetime(sorted_data['Auftragsdatum'], format='%d.%m.%Y %H:%M:%S', errors='coerce').round('s')
+                    values = sorted_data['Befundtext'].astype(float)
+                    
+                    timestamps_numeric = (timestamps - timestamps.min()).dt.total_seconds()
+
+                    # Nonlinear (Spline) Interpolation
+                    from scipy.interpolate import make_interp_spline
+
+                    # Specify boundary conditions with bc_type='natural'
+                    spline = make_interp_spline(timestamps_numeric, values, bc_type='natural')
+                    interpolated_timestamps_numeric = np.arange(timestamps_numeric.min(), timestamps_numeric.max() + 1, 1)
+
+                    interpolated_values_spline = spline(interpolated_timestamps_numeric)
+                    interpolated_timestamps = timestamps.min() + pd.to_timedelta(interpolated_timestamps_numeric, unit='s')
+                    
+                    plt.figure(figsize=(10, 6))
+                    plt.plot(timestamps, values, marker='o', label='Original Data')
+                    plt.plot(interpolated_timestamps, interpolated_values_spline, label='Spline Interpolation')
+                    plt.title(f"{selected_code} Spline Interpolated Point-to-Point Analysis for {selected_patient}")
+                    plt.xlabel("Date")
+                    plt.ylabel("Result")
+                    plt.xticks(rotation=45)
+                    plt.legend()
+                    st.pyplot(plt)
+
+        
+
 def tab6(patient_details_file, report_details_file):
     st.title("Generate Patient Results File")
 
@@ -272,30 +304,18 @@ def tab6(patient_details_file, report_details_file):
             st.subheader("Selected Patient Info:")
             st.dataframe(selected_patient_info)
             
-            # Get a list of unique CODEs for the selected patient
             unique_codes = selected_patient_info["CODE"].unique()
-            
-            # Create a list of time points (-24h, 0, 24h, 48h, 72h, up to 10 days)
-            time_points = [-24, 0, 24, 48, 72] + [i for i in range(96, 241, 24)]  # Up to 10 days
-            
-            # Create a new DataFrame to store the results
+            time_points = [-24, 0, 24, 48, 72] + [i for i in range(96, 241, 24)]
             result_df = pd.DataFrame({"Timestamp": selected_patient_info["Auftragsdatum"]})
             
-            # Iterate through each unique CODE and add it as a column in the result DataFrame
             for code in unique_codes:
                 for time_point in time_points:
-                    # Calculate the start time for the current time point
                     start_time = selected_patient_info[selected_patient_info["CODE"] == code]["Auftragsdatum"].max() - timedelta(hours=abs(time_point))
-                    
-                    # Filter data for the current CODE and time point
                     filtered_data = selected_patient_info[(selected_patient_info["CODE"] == code) &
                                                         (pd.to_datetime(selected_patient_info["Auftragsdatum"], format='%d.%m.%Y %H:%M:%S') >= start_time)]
                     
-                    # Extract the values and timestamps
                     timestamps = pd.to_datetime(filtered_data['Auftragsdatum'], format='%d.%m.%Y %H:%M:%S', errors='coerce').round('s')
                     values = filtered_data['Befundtext']
-                    
-                    # Convert non-numeric values to NaN
                     values = pd.to_numeric(values, errors='coerce')
                     
                     timestamps_numeric = (timestamps - timestamps.min()).dt.total_seconds()
@@ -306,33 +326,23 @@ def tab6(patient_details_file, report_details_file):
                     interpolated_values = f(interpolated_timestamps_numeric)
                     interpolated_timestamps = timestamps.min() + pd.to_timedelta(interpolated_timestamps_numeric, unit='s')
                     
-                    # Get the timestamp for the current time point
                     timestamp_for_time_point = start_time + timedelta(hours=time_point)
-                    
-                    # Convert the Timestamp to Unix timestamp (seconds since epoch)
                     timestamp_for_time_point_unix = timestamp_for_time_point.timestamp()
                     
-                    # Calculate the absolute differences
                     absolute_differences = np.abs(interpolated_timestamps_numeric - timestamp_for_time_point_unix)
-                    
-                    # Find the index of the closest timestamp
                     closest_index = np.argmin(absolute_differences)
                     
-                    # Get the interpolated value for the closest timestamp
                     interpolated_value_for_time_point = interpolated_values[closest_index]
-                    
-                    # Rename the column to represent the time point
                     column_name = f"{code}_{time_point}h"
                     result_df[column_name] = interpolated_value_for_time_point
                 
             st.subheader("Generated Patient Results File:")
             st.dataframe(result_df)
             
-            # Save the result DataFrame to a new Excel file
+
             result_file_name = f"{selected_patient}_results.xlsx"
             result_df.to_excel(result_file_name, index=False)
             
-            # Provide a download link for the generated file
             st.markdown(f"Download the results file: [**{result_file_name}**](/{result_file_name})",
                         unsafe_allow_html=True)
             
