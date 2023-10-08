@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime, timedelta
 from scipy import stats, interpolate
+from scipy.interpolate import interp1d, make_interp_spline
+from scipy.stats import ttest_ind
 import seaborn as sns
 from streamlit_option_menu import option_menu
 from markup import app_intro, how_use_intro
@@ -265,10 +267,8 @@ def tab5(patient_details_file, report_details_file):
                     
                     timestamps_numeric = (timestamps - timestamps.min()).dt.total_seconds()
 
-                    # Nonlinear (Spline) Interpolation
                     from scipy.interpolate import make_interp_spline
 
-                    # Specify boundary conditions with bc_type='natural'
                     spline = make_interp_spline(timestamps_numeric, values, bc_type='natural')
                     interpolated_timestamps_numeric = np.arange(timestamps_numeric.min(), timestamps_numeric.max() + 1, 1)
 
@@ -285,8 +285,61 @@ def tab5(patient_details_file, report_details_file):
                     plt.legend()
                     st.pyplot(plt)
 
-        
+            if not filtered_data.empty:
+                if abs(selected_interval) > 0:
+                    sorted_data = filtered_data.sort_values(by='Auftragsdatum')
 
+                    timestamps = pd.to_datetime(sorted_data['Auftragsdatum'], format='%d.%m.%Y %H:%M:%S', errors='coerce').round('s')
+                    values = sorted_data['Befundtext'].astype(float)
+
+                    timestamps_numeric = (timestamps - timestamps.min()).dt.total_seconds()
+
+                    # Perform linear interpolation
+                    f = interp1d(timestamps_numeric, values, kind='linear', fill_value='extrapolate')
+                    interpolated_timestamps_numeric = np.arange(timestamps_numeric.min(), timestamps_numeric.max() + 1, 1)
+                    interpolated_values = f(interpolated_timestamps_numeric)
+
+                    # Perform t-test to assess statistical significance
+                    t_statistic, p_value = ttest_ind(values, interpolated_values)
+
+                    # Display the results of the t-test and explanations
+                    st.subheader("Statistical Significance Analysis:")
+
+                    # Display the original data mean and standard deviation
+                    original_mean = np.mean(values)
+                    original_std = np.std(values)
+                    st.write(f"Original Data Mean: {original_mean:.2f}")
+                    st.write(f"Original Data Standard Deviation: {original_std:.2f}")
+
+                    # Display the interpolated data mean and standard deviation
+                    interpolated_mean = np.mean(interpolated_values)
+                    interpolated_std = np.std(interpolated_values)
+                    st.write(f"Interpolated Data Mean: {interpolated_mean:.2f}")
+                    st.write(f"Interpolated Data Standard Deviation: {interpolated_std:.2f}")
+
+                    # Display the t-statistic and p-value
+                    st.write(f"t-statistic: {t_statistic:.2f}")
+                    st.write(f"p-value: {p_value:.4f}")
+
+                    # Explain the results
+                    st.write("The t-statistic measures the difference between the means of the original data and interpolated data.")
+                    st.write("A higher t-statistic indicates a larger difference between the means.")
+                    st.write("The p-value represents the probability of observing such a difference by chance alone.")
+                    st.write("A small p-value (typically less than 0.05) suggests that the difference is statistically significant,")
+                    st.write("meaning that the interpolation results are significantly different from the actual recorded values.")
+
+                    # Plot original data, linear interpolation, and spline interpolation
+                    plt.figure(figsize=(10, 6))
+                    plt.plot(timestamps, values, marker='o', label='Original Data')
+                    plt.plot(interpolated_timestamps, interpolated_values, label='Linear Interpolation')
+                    plt.title(f"{selected_code} Interpolated Point-to-Point Analysis for {selected_patient}")
+                    plt.xlabel("Date")
+                    plt.ylabel("Result")
+                    plt.xticks(rotation=45)
+                    plt.legend()
+                    st.pyplot(plt)
+
+        
 def tab6(patient_details_file, report_details_file):
     st.title("Generate Patient Results File")
 
