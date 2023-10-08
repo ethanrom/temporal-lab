@@ -8,7 +8,6 @@ import seaborn as sns
 from streamlit_option_menu import option_menu
 from markup import app_intro, how_use_intro
 
-
 PASSWORD = 'Ethan101'
 
 def authenticate(password):
