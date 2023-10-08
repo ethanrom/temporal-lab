@@ -472,10 +472,14 @@ def tab7(patient_details_file, report_details_file):
             for code in unique_codes:
                 code_data = selected_patient_info[selected_patient_info["CODE"] == code]
 
+                # Ensure that "Befundtext" is numeric and sort the DataFrame by it
+                code_data["Befundtext"] = pd.to_numeric(code_data["Befundtext"], errors='coerce')
+                code_data = code_data.sort_values("Befundtext", ascending=True)
+
                 plt.figure(figsize=(10, 6))
                 distances_hours = code_data["Distance_to_Midpoint"].dt.total_seconds() / 3600
 
-                # Use Befundtext as labels
+                # Use sorted Befundtext as labels
                 befundtext = code_data["Befundtext"]
 
                 plt.scatter(distances_hours, befundtext, marker='o', alpha=0.5)
@@ -494,7 +498,7 @@ def main():
     st.set_page_config(page_title="Patient Data App")
     st.title("Lab Parameter Analysis Tool")
     
-    tabs = ["Introduction", "Upload Files", "View and Filter Data", "Select and View Patient Info", "Point-to-Point Analysis", "Interpolated Point-to-Point Analysis", "Generate Patient Results File", "Distance of Lab Tests to Midpoint of Operation"]
+    tabs = ["Introduction", "Upload Files", "View and Filter Data", "Select and View Patient Info", "Point-to-Point Analysis", "Interpolated Point-to-Point Analysis", "Generate Patient Results File", "Calculate Distance of Lab Tests to Midpoint of Operation"]
     with st.sidebar:
 
         selected_tab = option_menu("Select a Tab", tabs, menu_icon="cast")
@@ -518,7 +522,7 @@ def main():
     elif selected_tab == "Generate Patient Results File":
         patient_details_file, report_details_file = tab1()
         tab6(patient_details_file, report_details_file)
-    elif selected_tab == "Distance of Lab Tests to Midpoint of Operation":
+    elif selected_tab == "Calculate Distance of Lab Tests to Midpoint of Operation":
         patient_details_file, report_details_file = tab1()
         tab7(patient_details_file, report_details_file)
 
