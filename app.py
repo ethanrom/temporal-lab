@@ -212,51 +212,54 @@ def tab5(patient_details_file, report_details_file):
         if patient_details_file and report_details_file:
             patient_details_df = pd.read_excel(patient_details_file)
             report_details_df = pd.read_excel(report_details_file)
-            
-            # Let the user choose between individual and grouped info
+
             info_option = st.radio("Select Info Display Option:", ["Individual Patient Info", "Grouped Patient Info"])
-            
+
             if info_option == "Individual Patient Info":
                 selected_patient = st.selectbox("Select a patient:", patient_details_df["LastName"].unique(), key="patient")
                 selected_patient_info = report_details_df[report_details_df["Name"] == selected_patient]
-                
+
                 st.subheader("Selected Patient Info:")
                 st.dataframe(selected_patient_info)
-                
 
-            
+                reference_time = patient_details_df[patient_details_df["LastName"] == selected_patient]["PreopDiagTimingSurgSkinIncision"].max()
+                st.subheader(f"Reference Time : {reference_time}")
+
             elif info_option == "Grouped Patient Info":
                 selected_timing = st.radio("Select Disease Dissection Timing:", ["chronic", "acute"])
-                
                 selected_patients = patient_details_df[patient_details_df["DiseaseDissectionTiming"] == selected_timing]
-                
+
                 if not selected_patients.empty:
                     st.subheader("Selected Patients:")
                     st.dataframe(selected_patients)
-                    
+
+                    reference_times = []
                     for selected_patient in selected_patients["LastName"].unique():
                         selected_patient_info = report_details_df[report_details_df["Name"] == selected_patient]
                         
-                        st.subheader(f"Selected Patient Info for {selected_patient}:")
-                        st.dataframe(selected_patient_info)
-                
+                        reference_time = patient_details_df[patient_details_df["LastName"] == selected_patient]["PreopDiagTimingSurgSkinIncision"].max()
+                        reference_times.append(reference_time)
+                    
+                    reference_time = min(reference_times) + (max(reference_times) - min(reference_times)) / 2
+                    st.subheader(f"Reference Time : {reference_time}")
+
                 else:
                     st.write("No patients found for the selected timing.")
-            
+                    return
 
-            
             selected_code = st.selectbox("Select a CODE:", selected_patient_info["CODE"].unique())
-            
             selected_interval = st.selectbox("Select a time interval (hours):", [-24, 0, 24, 48, 72, 96, 120, 144, 168, 240, 360])
-            
-            last_recorded_time = selected_patient_info[selected_patient_info["CODE"] == selected_code]["Auftragsdatum"].max()
-            start_time = last_recorded_time - timedelta(hours=abs(selected_interval))
-            
+
+            end_time = reference_time + timedelta(hours=abs(selected_interval))            
+            start_time = reference_time
             filtered_data = selected_patient_info[(selected_patient_info["CODE"] == selected_code) &
-                                                (pd.to_datetime(selected_patient_info["Auftragsdatum"], format='%d.%m.%Y %H:%M:%S') >= start_time)]
-            
+                                                 (pd.to_datetime(selected_patient_info["Auftragsdatum"], format='%d.%m.%Y %H:%M:%S') >= start_time) &
+                                                 (pd.to_datetime(selected_patient_info["Auftragsdatum"], format='%d.%m.%Y %H:%M:%S') <= end_time)]
+
             st.subheader(f"Point-to-Point Analysis for {selected_code} in the last {abs(selected_interval)} hours:")
             st.dataframe(filtered_data)
+            
+
             
             if not filtered_data.empty:
                 if abs(selected_interval) > 0:
@@ -409,11 +412,89 @@ def tab6(patient_details_file, report_details_file):
             
             st.success(f"Results file '{result_file_name}' has been generated and saved.")
 
+
+
+def calculate_midpoint(start_time, end_time):
+    half_duration = (end_time - start_time) / 2
+    midpoint = start_time + half_duration
+    return midpoint
+
+def format_timedelta(delta):
+    days, seconds = delta.days, delta.seconds
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    return f"{days} days {hours:02}:{minutes:02}:{seconds:02}"
+
+def tab7(patient_details_file, report_details_file):
+    st.title("Calculate Distance of Lab Tests to Midpoint of Operation")
+
+    password_input = st.text_input('Enter Password', type='password')
+    if authenticate(password_input):
+
+        if patient_details_file and report_details_file:
+            patient_details_df = pd.read_excel(patient_details_file)
+            report_details_df = pd.read_excel(report_details_file)
+
+            selected_patient = st.selectbox("Select a patient:", patient_details_df["LastName"].unique())
+            selected_patient_info = report_details_df[report_details_df["Name"] == selected_patient].copy()
+            st.subheader("Selected Patient Info:")
+            st.dataframe(selected_patient_info)
+
+            operation_info = patient_details_df[patient_details_df["LastName"] == selected_patient]
+            start_time_str = operation_info["PreopDiagTimingSurgSkinIncision"].values[0]
+            end_time_str = operation_info["PreopDiagTimingSurgSutureEnd"].values[0]
+
+            if isinstance(start_time_str, np.datetime64):
+                start_time_str = start_time_str.astype(str)
+            if isinstance(end_time_str, np.datetime64):
+                end_time_str = end_time_str.astype(str)
+            start_time_str = start_time_str.replace("T", " ").split(".")[0]
+            end_time_str = end_time_str.replace("T", " ").split(".")[0]
+
+            start_time = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+            end_time = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
+            midpoint = calculate_midpoint(start_time, end_time)
+
+            selected_patient_info["Auftragsdatum"] = pd.to_datetime(selected_patient_info["Auftragsdatum"], format="%d.%m.%Y %H:%M:%S")
+            selected_patient_info["Distance_to_Midpoint"] = abs(selected_patient_info["Auftragsdatum"] - midpoint)
+
+            selected_patient_info["Distance_to_Midpoint"] = selected_patient_info["Distance_to_Midpoint"].apply(format_timedelta)
+            st.subheader("Lab Test Distance to Midpoint of Operation:")
+            st.dataframe(selected_patient_info[["Auftragsdatum", "CODE", "Befundtext", "Distance_to_Midpoint"]])
+
+            if not pd.api.types.is_timedelta64_dtype(selected_patient_info["Distance_to_Midpoint"]):
+                selected_patient_info["Distance_to_Midpoint"] = pd.to_timedelta(selected_patient_info["Distance_to_Midpoint"])
+
+            unique_codes = selected_patient_info["CODE"].unique()
+
+            # Create a scatter plot for each unique CODE
+            for code in unique_codes:
+                code_data = selected_patient_info[selected_patient_info["CODE"] == code]
+
+                plt.figure(figsize=(10, 6))
+                distances_hours = code_data["Distance_to_Midpoint"].dt.total_seconds() / 3600
+
+                # Use Befundtext as labels
+                befundtext = code_data["Befundtext"]
+
+                plt.scatter(distances_hours, befundtext, marker='o', alpha=0.5)
+                plt.xlabel("Distance to Midpoint (hours)")
+                plt.ylabel("Befundtext")
+                plt.title(f"Befundtext vs. Distance to Midpoint for CODE: {code}")
+                plt.grid(True)
+                plt.tight_layout()
+
+                st.pyplot(plt)
+
+
+
+
 def main():
     st.set_page_config(page_title="Patient Data App")
     st.title("Lab Parameter Analysis Tool")
     
-    tabs = ["Introduction", "Upload Files", "View and Filter Data", "Select and View Patient Info", "Point-to-Point Analysis", "Interpolated Point-to-Point Analysis", "Generate Patient Results File"]
+    tabs = ["Introduction", "Upload Files", "View and Filter Data", "Select and View Patient Info", "Point-to-Point Analysis", "Interpolated Point-to-Point Analysis", "Generate Patient Results File", "Distance of Lab Tests to Midpoint of Operation"]
     with st.sidebar:
 
         selected_tab = option_menu("Select a Tab", tabs, menu_icon="cast")
@@ -437,6 +518,10 @@ def main():
     elif selected_tab == "Generate Patient Results File":
         patient_details_file, report_details_file = tab1()
         tab6(patient_details_file, report_details_file)
+    elif selected_tab == "Distance of Lab Tests to Midpoint of Operation":
+        patient_details_file, report_details_file = tab1()
+        tab7(patient_details_file, report_details_file)
+
 
 if __name__ == "__main__":
     main()
